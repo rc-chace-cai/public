@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <title>getUserMedia 性能测试</title>
+  <style>
+      body {
+          font-family: Arial, sans-serif;
+          max-width: 900px;
+          margin: 0 auto;
+          padding: 20px;
+      }
+
+      h1 {
+          color: #333;
+          border-bottom: 1px solid #ccc;
+          padding-bottom: 10px;
+      }
+
+      #controls {
+          margin: 20px 0;
+          background-color: #f5f5f5;
+          padding: 15px;
+          border-radius: 5px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+
+      #controls label {
+          display: inline-block;
+          width: 120px;
+          margin-bottom: 8px;
+      }
+
+      #controls input {
+          margin-bottom: 8px;
+      }
+
+      button {
+          background-color: #4CAF50;
+          color: white;
+          border: none;
+          padding: 8px 15px;
+          margin-right: 10px;
+          cursor: pointer;
+          border-radius: 4px;
+      }
+
+      button:disabled {
+          background-color: #cccccc;
+          cursor: not-allowed;
+      }
+
+      #testAudioBtn {
+          background-color: #2196F3;
+      }
+
+      #stopTestBtn {
+          background-color: #f44336;
+      }
+
+      #log {
+          max-height: 400px;
+          overflow-y: auto;
+          border: 1px solid #ccc;
+          padding: 10px;
+          font-family: monospace;
+          background-color: #f9f9f9;
+      }
+
+      #status {
+          margin-bottom: 20px;
+          padding: 10px;
+          background-color: #e8f5e9;
+          border-left: 4px solid #4CAF50;
+      }
+
+      .log-entry {
+          margin: 2px 0;
+          padding: 2px 0;
+          border-bottom: 1px solid #eee;
+      }
+
+      .warning {
+          color: #f44336;
+          font-weight: bold;
+      }
+
+      #statistics {
+          margin-top: 20px;
+          padding: 15px;
+          background-color: #e8f4fd;
+          border: 1px solid #b3d8f7;
+          border-radius: 5px;
+          display: none;
+      }
+
+      #statistics h3 {
+          margin-top: 0;
+          color: #0d47a1;
+      }
+
+      #statistics table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 10px;
+      }
+
+      #statistics th,
+      #statistics td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+      }
+
+      #statistics th {
+          background-color: #f2f2f2;
+      }
+  </style>
+</head>
+
+<body>
+<h1>getUserMedia 性能测试</h1>
+
+<div id="controls">
+  <div>
+    <button id="startTestBtn">开始测试</button>
+    <button id="stopTestBtn" disabled>停止测试</button>
+    <input type="number" id="iterationCount" value="100" min="1" max="10000000000000"> 次重复测试
+  </div>
+  <div>
+    <label for="slowThreshold">慢调用阈值: </label>
+    <input type="number" id="slowThreshold" value="1000" min="100" max="60000"> 毫秒
+  </div>
+  <div>
+    <label for="testInterval">测试间隔: </label>
+    <input type="number" id="testInterval" value="1000" min="0" max="60000"> 毫秒
+  </div>
+</div>
+
+<div id="status"></div>
+<div id="statistics"></div>
+<div id="log"></div>
+
+<script>
+  const logElement = document.getElementById("log");
+  const statusElement = document.getElementById("status");
+  const startTestBtn = document.getElementById("startTestBtn");
+  const stopTestBtn = document.getElementById("stopTestBtn");
+  const iterationCountInput = document.getElementById("iterationCount");
+  const slowThresholdInput = document.getElementById("slowThreshold");
+  const testIntervalInput = document.getElementById("testInterval");
+  const statisticsElement = document.getElementById("statistics");
+
+  let testActive = false;
+  let iterationCounter = 0;
+  let slowCallCount = 0;
+  let callDurations = [];
+
+  function log(message, isWarning = false) {
+    const timestamp = new Date().toISOString().substr(11, 12);
+    const entry = `[${timestamp}] ${message}`;
+    console.log(entry);
+
+    const entryElement = document.createElement("p");
+    entryElement.className = "log-entry";
+    entryElement.textContent = entry;
+
+    if (isWarning) {
+      entryElement.classList.add("warning");
+    }
+
+    logElement.appendChild(entryElement);
+    logElement.scrollTop = logElement.scrollHeight;
+  }
+
+  // 停止并清理音频流
+  function stopMediaStream(stream) {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    }
+    return false;
+  }
+
+  // 获取带处理功能的音频流
+  async function getProcessedStream() {
+    let audioContext = null;
+    let audioStream = null;
+    try {
+      log("【测试流程】创建audioContext");
+      audioContext = new window.AudioContext({ sampleRate: 16000 });
+      // 记录开始时间
+      const startTime = performance.now();
+
+      // 设置音频约束，启用自动增益控制和噪声抑制
+      const audioConstraints = {
+        audio: {
+          autoGainControl: true,     // 自动音量调节
+          noiseSuppression: true,    // 噪声抑制
+          echoCancellation: true     // 回声消除
+        }
+      };
+
+      // 获取带处理功能的音频流
+      log("【测试流程】获取音频流");
+      audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+
+      // 计算耗时
+      const duration = performance.now() - startTime;
+      callDurations.push(duration);
+
+      const isSlowCall = duration > parseInt(slowThresholdInput.value);
+
+      if (isSlowCall) {
+        slowCallCount++;
+        log(`【测试流程】⚠️ 耗时: ${duration.toFixed(2)}ms (明显变慢)`, true);
+      } else {
+        log(`【测试流程】耗时: ${duration.toFixed(2)}ms`);
+      }
+
+      return true;
+    } catch (err) {
+      log(`【测试流程】获取处理流错误: ${err.name} - ${err.message}`, true);
+      return false;
+    } finally {
+      if (audioContext) {
+        try {
+          log("【测试流程】关闭audioContext");
+          await audioContext.close();
+        } catch (err) {
+          console.error("关闭音频上下文错误:", err);
+        }
+      }
+      if (audioStream) {
+        log("【测试流程】停止音频流");
+        stopMediaStream(audioStream);
+      }
+    }
+  }
+
+  // getUserMedia测试循环
+  async function userMediaTestLoop() {
+    if (!testActive) return;
+
+    iterationCounter++;
+    log(`【测试流程】--- 测试 #${iterationCounter} 开始 ---`);
+
+    try {
+      // 获取处理流
+      await getProcessedStream();
+
+      // 更新状态
+      updateStatus();
+
+      // 检查是否完成所有迭代
+      if (iterationCounter >= parseInt(iterationCountInput.value)) {
+        // 结束测试
+        stopTest();
+        return;
+      }
+
+      if (testActive) {
+        // 使用可配置的测试间隔
+        const interval = parseInt(testIntervalInput.value);
+        setTimeout(userMediaTestLoop, interval);
+      }
+    } catch (error) {
+      log(`【测试流程】测试循环出错: ${error.message}`, true);
+
+      // 更新状态
+      updateStatus();
+
+      // 检查是否完成所有迭代
+      if (iterationCounter >= parseInt(iterationCountInput.value)) {
+        stopTest();
+        return;
+      }
+
+      if (testActive) {
+        // 发生错误时也继续循环，使用可配置的测试间隔
+        const interval = parseInt(testIntervalInput.value);
+        setTimeout(userMediaTestLoop, interval);
+      }
+    }
+  }
+
+  // 开始测试系列
+  async function startTest() {
+    if (testActive) return;
+
+    testActive = true;
+    iterationCounter = 0;
+    slowCallCount = 0;
+    callDurations = [];
+
+    // 隐藏统计信息区域
+    statisticsElement.style.display = "none";
+
+    // 更新UI
+    startTestBtn.disabled = true;
+    stopTestBtn.disabled = false;
+    iterationCountInput.disabled = true;
+    slowThresholdInput.disabled = true;
+    testIntervalInput.disabled = true;
+
+    // 清除日志
+    logElement.innerHTML = "";
+
+    log("开始并行性能测试");
+    updateStatus();
+
+    userMediaTestLoop();
+  }
+
+  // 停止测试
+  async function stopTest() {
+    testActive = false;
+
+    // 更新UI
+    startTestBtn.disabled = false;
+    stopTestBtn.disabled = true;
+    iterationCountInput.disabled = false;
+    slowThresholdInput.disabled = false;
+    testIntervalInput.disabled = false;
+
+    log("--- 测试结束 ---");
+    log(`总测试次数: ${iterationCounter}`);
+    log(`变慢的调用次数: ${slowCallCount} (${((slowCallCount / iterationCounter) * 100).toFixed(1)}%)`);
+    updateStatus();
+
+    // 显示统计结果
+    displayStatistics();
+  }
+
+  // 显示统计结果
+  function displayStatistics() {
+    if (callDurations.length === 0) {
+      statisticsElement.style.display = "none";
+      return;
+    }
+
+    // 计算统计数据
+    const avgDuration = callDurations.reduce((a, b) => a + b, 0) / callDurations.length;
+    const sortedDurations = [...callDurations].sort((a, b) => a - b);
+    const medianDuration = sortedDurations[Math.floor(sortedDurations.length / 2)];
+    const minDuration = Math.min(...callDurations);
+    const maxDuration = Math.max(...callDurations);
+
+    // 计算标准差
+    const variance = callDurations.reduce((acc, val) => acc + Math.pow(val - avgDuration, 2), 0) / callDurations.length;
+    const stdDeviation = Math.sqrt(variance);
+
+    // 构建统计HTML
+    const statsHtml = `
+        <h3>测试统计结果</h3>
+        <table>
+          <tr>
+            <th>指标</th>
+            <th>值</th>
+          </tr>
+          <tr>
+            <td>总调用次数</td>
+            <td>${iterationCounter}</td>
+          </tr>
+          <tr>
+            <td>慢调用次数 (>${slowThresholdInput.value}ms)</td>
+            <td>${slowCallCount} (${((slowCallCount / iterationCounter) * 100).toFixed(1)}%)</td>
+          </tr>
+          <tr>
+            <td>平均耗时</td>
+            <td>${avgDuration.toFixed(2)}ms</td>
+          </tr>
+          <tr>
+            <td>中位数耗时</td>
+            <td>${medianDuration.toFixed(2)}ms</td>
+          </tr>
+          <tr>
+            <td>最小耗时</td>
+            <td>${minDuration.toFixed(2)}ms</td>
+          </tr>
+          <tr>
+            <td>最大耗时</td>
+            <td>${maxDuration.toFixed(2)}ms</td>
+          </tr>
+          <tr>
+            <td>标准差</td>
+            <td>${stdDeviation.toFixed(2)}ms</td>
+          </tr>
+        </table>
+      `;
+
+    statisticsElement.innerHTML = statsHtml;
+    statisticsElement.style.display = "block";
+  }
+
+  // 更新状态显示
+  function updateStatus() {
+    if (!testActive) {
+      statusElement.innerHTML = `<h3>测试未运行</h3>`;
+      return;
+    }
+
+    const totalTests = parseInt(iterationCountInput.value);
+    const progress = (iterationCounter / totalTests) * 100;
+    const testInterval = parseInt(testIntervalInput.value);
+
+    statusElement.innerHTML = `
+        <h3>并行测试进行中...</h3>
+        <p>测试进度: ${iterationCounter}/${totalTests} (${progress.toFixed(1)}%)</p>
+        <p>变慢调用: ${slowCallCount} (${iterationCounter > 0 ? ((slowCallCount / iterationCounter) * 100).toFixed(1) : 0}%)</p>
+        <p>慢调用阈值: ${slowThresholdInput.value}毫秒</p>
+        <p>测试间隔: ${testInterval}毫秒</p>
+      `;
+  }
+
+  // 注册事件监听器
+  startTestBtn.addEventListener("click", startTest);
+  stopTestBtn.addEventListener("click", stopTest);
+</script>
+</body>
+
+</html>
