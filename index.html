@@ -3,7 +3,7 @@
 
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-  <title>getUserMedia 性能测试</title>
+  <title>getUserMedia Performance Test</title>
   <style>
       body {
           font-family: Arial, sans-serif;
@@ -120,21 +120,21 @@
 </head>
 
 <body>
-<h1>getUserMedia 性能测试</h1>
+<h1>getUserMedia Performance Test</h1>
 
 <div id="controls">
   <div>
-    <button id="startTestBtn">开始测试</button>
-    <button id="stopTestBtn" disabled>停止测试</button>
-    <input type="number" id="iterationCount" value="100" min="1" max="10000000000000"> 次重复测试
+    <button id="startTestBtn">Start Test</button>
+    <button id="stopTestBtn" disabled>Stop Test</button>
+    <input type="number" id="iterationCount" value="10" min="1" max="10000000000000"> Repeat Tests
   </div>
   <div>
-    <label for="slowThreshold">慢调用阈值: </label>
-    <input type="number" id="slowThreshold" value="1000" min="100" max="60000"> 毫秒
+    <label for="slowThreshold">Slow Call Threshold: </label>
+    <input type="number" id="slowThreshold" value="1000" min="100" max="60000"> ms
   </div>
   <div>
-    <label for="testInterval">测试间隔: </label>
-    <input type="number" id="testInterval" value="1000" min="0" max="60000"> 毫秒
+    <label for="testInterval">Test Interval: </label>
+    <input type="number" id="testInterval" value="3000" min="0" max="60000"> ms
   </div>
 </div>
 
@@ -174,7 +174,7 @@
     logElement.scrollTop = logElement.scrollHeight;
   }
 
-  // 停止并清理音频流
+  // Stop and clean up audio stream
   function stopMediaStream(stream) {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
@@ -183,30 +183,26 @@
     return false;
   }
 
-  // 获取带处理功能的音频流
+  // Get processed audio stream
   async function getProcessedStream() {
     let audioContext = null;
     let audioStream = null;
     try {
-      log("【测试流程】创建audioContext");
+      log("[Test Process] Creating audioContext");
       audioContext = new window.AudioContext({ sampleRate: 16000 });
-      // 记录开始时间
       const startTime = performance.now();
 
-      // 设置音频约束，启用自动增益控制和噪声抑制
       const audioConstraints = {
         audio: {
-          autoGainControl: true,     // 自动音量调节
-          noiseSuppression: true,    // 噪声抑制
-          echoCancellation: true     // 回声消除
+          autoGainControl: true,
+          noiseSuppression: true,
+          echoCancellation: true
         }
       };
 
-      // 获取带处理功能的音频流
-      log("【测试流程】获取音频流");
+      log("[Test Process] Getting audio stream");
       audioStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
 
-      // 计算耗时
       const duration = performance.now() - startTime;
       callDurations.push(duration);
 
@@ -214,78 +210,66 @@
 
       if (isSlowCall) {
         slowCallCount++;
-        log(`【测试流程】⚠️ 耗时: ${duration.toFixed(2)}ms (明显变慢)`, true);
+        log(`[Test Process] ⚠️ Duration: ${duration.toFixed(2)}ms (Significantly Slow)`, true);
       } else {
-        log(`【测试流程】耗时: ${duration.toFixed(2)}ms`);
+        log(`[Test Process] Duration: ${duration.toFixed(2)}ms`);
       }
 
       return true;
     } catch (err) {
-      log(`【测试流程】获取处理流错误: ${err.name} - ${err.message}`, true);
+      log(`[Test Process] Error getting processed stream: ${err.name} - ${err.message}`, true);
       return false;
     } finally {
       if (audioContext) {
         try {
-          log("【测试流程】关闭audioContext");
+          log("[Test Process] Closing audioContext");
           await audioContext.close();
         } catch (err) {
-          console.error("关闭音频上下文错误:", err);
+          console.error("Error closing audio context:", err);
         }
       }
       if (audioStream) {
-        log("【测试流程】停止音频流");
+        log("[Test Process] Stopping audio stream");
         stopMediaStream(audioStream);
       }
     }
   }
 
-  // getUserMedia测试循环
   async function userMediaTestLoop() {
     if (!testActive) return;
 
     iterationCounter++;
-    log(`【测试流程】--- 测试 #${iterationCounter} 开始 ---`);
+    log(`[Test Process] --- Test #${iterationCounter} Started ---`);
 
     try {
-      // 获取处理流
       await getProcessedStream();
-
-      // 更新状态
       updateStatus();
 
-      // 检查是否完成所有迭代
       if (iterationCounter >= parseInt(iterationCountInput.value)) {
-        // 结束测试
         stopTest();
         return;
       }
 
       if (testActive) {
-        // 使用可配置的测试间隔
         const interval = parseInt(testIntervalInput.value);
         setTimeout(userMediaTestLoop, interval);
       }
     } catch (error) {
-      log(`【测试流程】测试循环出错: ${error.message}`, true);
-
-      // 更新状态
+      log(`[Test Process] Test loop error: ${error.message}`, true);
       updateStatus();
 
-      // 检查是否完成所有迭代
       if (iterationCounter >= parseInt(iterationCountInput.value)) {
         stopTest();
         return;
       }
 
       if (testActive) {
-        // 发生错误时也继续循环，使用可配置的测试间隔
         const interval = parseInt(testIntervalInput.value);
         setTimeout(userMediaTestLoop, interval);
       }
     }
   }
 
-  // 开始测试系列
   async function startTest() {
     if (testActive) return;
 
@@ -294,97 +278,87 @@
     slowCallCount = 0;
     callDurations = [];
 
-    // 隐藏统计信息区域
     statisticsElement.style.display = "none";
 
-    // 更新UI
     startTestBtn.disabled = true;
     stopTestBtn.disabled = false;
     iterationCountInput.disabled = true;
     slowThresholdInput.disabled = true;
     testIntervalInput.disabled = true;
 
-    // 清除日志
     logElement.innerHTML = "";
 
-    log("开始并行性能测试");
+    log("Starting Parallel Performance Test");
     updateStatus();
 
     userMediaTestLoop();
   }
 
-  // 停止测试
   async function stopTest() {
     testActive = false;
 
-    // 更新UI
     startTestBtn.disabled = false;
     stopTestBtn.disabled = true;
     iterationCountInput.disabled = false;
     slowThresholdInput.disabled = false;
     testIntervalInput.disabled = false;
 
-    log("--- 测试结束 ---");
-    log(`总测试次数: ${iterationCounter}`);
-    log(`变慢的调用次数: ${slowCallCount} (${((slowCallCount / iterationCounter) * 100).toFixed(1)}%)`);
+    log("--- Test Completed ---");
+    log(`Total Test Count: ${iterationCounter}`);
+    log(`Slow Call Count: ${slowCallCount} (${((slowCallCount / iterationCounter) * 100).toFixed(1)}%)`);
     updateStatus();
 
-    // 显示统计结果
     displayStatistics();
   }
 
-  // 显示统计结果
   function displayStatistics() {
     if (callDurations.length === 0) {
       statisticsElement.style.display = "none";
       return;
     }
 
-    // 计算统计数据
     const avgDuration = callDurations.reduce((a, b) => a + b, 0) / callDurations.length;
     const sortedDurations = [...callDurations].sort((a, b) => a - b);
     const medianDuration = sortedDurations[Math.floor(sortedDurations.length / 2)];
     const minDuration = Math.min(...callDurations);
     const maxDuration = Math.max(...callDurations);
 
-    // 计算标准差
     const variance = callDurations.reduce((acc, val) => acc + Math.pow(val - avgDuration, 2), 0) / callDurations.length;
     const stdDeviation = Math.sqrt(variance);
 
-    // 构建统计HTML
     const statsHtml = `
-        <h3>测试统计结果</h3>
+        <h3>Test Statistics</h3>
         <table>
           <tr>
-            <th>指标</th>
-            <th>值</th>
+            <th>Metric</th>
+            <th>Value</th>
           </tr>
           <tr>
-            <td>总调用次数</td>
+            <td>Total Calls</td>
             <td>${iterationCounter}</td>
           </tr>
           <tr>
-            <td>慢调用次数 (>${slowThresholdInput.value}ms)</td>
+            <td>Slow Calls (>${slowThresholdInput.value}ms)</td>
             <td>${slowCallCount} (${((slowCallCount / iterationCounter) * 100).toFixed(1)}%)</td>
           </tr>
           <tr>
-            <td>平均耗时</td>
+            <td>Average Duration</td>
             <td>${avgDuration.toFixed(2)}ms</td>
           </tr>
           <tr>
-            <td>中位数耗时</td>
+            <td>Median Duration</td>
             <td>${medianDuration.toFixed(2)}ms</td>
           </tr>
           <tr>
-            <td>最小耗时</td>
+            <td>Minimum Duration</td>
             <td>${minDuration.toFixed(2)}ms</td>
           </tr>
           <tr>
-            <td>最大耗时</td>
+            <td>Maximum Duration</td>
             <td>${maxDuration.toFixed(2)}ms</td>
           </tr>
           <tr>
-            <td>标准差</td>
+            <td>Standard Deviation</td>
             <td>${stdDeviation.toFixed(2)}ms</td>
           </tr>
         </table>
@@ -394,10 +368,9 @@
     statisticsElement.style.display = "block";
   }
 
-  // 更新状态显示
   function updateStatus() {
     if (!testActive) {
-      statusElement.innerHTML = `<h3>测试未运行</h3>`;
+      statusElement.innerHTML = `<h3>Test Not Running</h3>`;
       return;
     }
 
@@ -406,15 +379,14 @@
     const testInterval = parseInt(testIntervalInput.value);
 
     statusElement.innerHTML = `
-        <h3>并行测试进行中...</h3>
-        <p>测试进度: ${iterationCounter}/${totalTests} (${progress.toFixed(1)}%)</p>
-        <p>变慢调用: ${slowCallCount} (${iterationCounter > 0 ? ((slowCallCount / iterationCounter) * 100).toFixed(1) : 0}%)</p>
-        <p>慢调用阈值: ${slowThresholdInput.value}毫秒</p>
-        <p>测试间隔: ${testInterval}毫秒</p>
+        <h3>Parallel Test in Progress...</h3>
+        <p>Test Progress: ${iterationCounter}/${totalTests} (${progress.toFixed(1)}%)</p>
+        <p>Slow Calls: ${slowCallCount} (${iterationCounter > 0 ? ((slowCallCount / iterationCounter) * 100).toFixed(1) : 0}%)</p>
+        <p>Slow Call Threshold: ${slowThresholdInput.value}ms</p>
+        <p>Test Interval: ${testInterval}ms</p>
       `;
   }
 
-  // 注册事件监听器
   startTestBtn.addEventListener("click", startTest);
   stopTestBtn.addEventListener("click", stopTest);
 </script>
